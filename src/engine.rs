@@ -1,12 +1,14 @@
 use std::{
     cell::RefCell,
+    collections::HashSet,
     f64::consts::E,
     fmt::Display,
+    hash::Hash,
     ops::{Add, Deref, Div, Mul, Neg, Sub},
     rc::Rc,
 };
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Value(Rc<RefCell<ValueInner>>);
 
 impl Value {
@@ -60,6 +62,30 @@ impl Value {
         Value::new_from_inner(out)
     }
 
+    pub fn backward(&self) {
+        // Topological order all of the children in the graph
+        let mut topo: Vec<Value> = Vec::new();
+        let mut visited: HashSet<Value> = HashSet::new();
+        self.build_topo(&mut topo, &mut visited);
+        // dbg!(&topo);
+
+        self.set_grad(1.0);
+        for v in topo.iter().rev() {
+            v._backward(); // Assuming _backward method exists for Value
+        }
+    }
+
+    fn build_topo(&self, topo: &mut Vec<Value>, visited: &mut HashSet<Value>) {
+        if !visited.contains(self) {
+            visited.insert(self.clone());
+            for child in &self.borrow().prev {
+                // Assuming _prev is a field in Value
+                child.build_topo(topo, visited);
+            }
+            topo.push(self.clone());
+        }
+    }
+
     pub fn _backward(&self) {
         let inner = self.borrow();
         let op = inner.op;
@@ -85,7 +111,12 @@ impl Value {
             Op::Div => todo!(),
             Op::Neg => todo!(),
             Op::Pow => todo!(),
-            Op::Tanh => todo!(),
+            Op::Tanh => {
+                // The operation was tanh(v)
+                let epowf2x = E.powf(2.0 * grad);
+                let t = (epowf2x - 1.0) / (epowf2x + 1.0);
+                prev[0].set_grad(grad + (1.0 - t.powf(2.0)) * grad);
+            }
             Op::None => {}
         }
     }
@@ -96,6 +127,12 @@ impl Deref for Value {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl Hash for Value {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.borrow().hash(state);
     }
 }
 
@@ -222,6 +259,25 @@ impl ValueInner {
         }
     }
 }
+
+impl Hash for ValueInner {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.data.to_bits().hash(state);
+        self.grad.to_bits().hash(state);
+        self.prev.hash(state);
+    }
+}
+
+impl PartialEq for ValueInner {
+    fn eq(&self, other: &Self) -> bool {
+        self.data == other.data
+            && self.grad == other.grad
+            && self.prev.len() == other.prev.len()
+            && self.op == other.op
+    }
+}
+
+impl Eq for ValueInner {}
 
 #[cfg(test)]
 mod tests {
