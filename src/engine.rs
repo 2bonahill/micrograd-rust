@@ -21,7 +21,6 @@ impl Value {
     }
 
     pub fn data(&self) -> f64 {
-        // Thanks to the Deref implementation we can call borrow on self directly
         self.borrow().data
     }
 
@@ -37,23 +36,24 @@ impl Value {
         self.borrow_mut().grad = new_grad;
     }
 
+    pub fn adjust_grad(&self, delta: f64) {
+        self.borrow_mut().grad += delta;
+    }
+
     pub fn pow(&self, exponent: f64) -> Self {
         let out = ValueInner {
             data: self.borrow().data.powf(exponent),
             grad: 0.0,
-            prev: vec![self.clone()],
-            op: Op::Add,
+            prev: vec![self.clone(), Value::new(exponent)],
+            op: Op::Pow,
         };
 
         Value::new_from_inner(out)
     }
 
     pub fn tanh(&self) -> Self {
-        let x = self.borrow().data;
-        let epowf2x = E.powf(2.0 * x);
-        let data = (epowf2x - 1.0) / (epowf2x + 1.0);
         let out = ValueInner {
-            data,
+            data: self.borrow().data.tanh(),
             grad: 0.0,
             prev: vec![self.clone()],
             op: Op::Tanh,
@@ -94,28 +94,39 @@ impl Value {
 
         match op {
             Op::Add => {
-                // The operation was c1 + c2
-                prev[0].set_grad(grad);
-                prev[1].set_grad(grad);
+                // The operation was a + b
+                prev[0].adjust_grad(grad * (1.0));
+                prev[1].adjust_grad(grad * (1.0));
             }
             Op::Sub => {
-                // The operation was c1 - c2
-                prev[0].set_grad(grad);
-                prev[1].set_grad(-grad);
+                // The operation was a - b
+                prev[0].adjust_grad(grad * (1.0));
+                prev[1].adjust_grad(grad * (-1.0));
             }
             Op::Mul => {
-                // The operation was c1 * c2
-                prev[0].set_grad(grad * prev[1].data());
-                prev[1].set_grad(grad * prev[0].data());
+                // The operation was a * b
+                let a = prev[0].data();
+                let b = prev[1].data();
+                prev[0].adjust_grad(grad * b);
+                prev[1].adjust_grad(grad * a);
             }
-            Op::Div => todo!(),
-            Op::Neg => todo!(),
-            Op::Pow => todo!(),
+            Op::Div => {
+                // The operation was a / b = a * (1/b)
+                let a = prev[0].data();
+                let b = prev[1].data();
+                prev[0].adjust_grad(grad * (1.0 / b));
+                prev[1].adjust_grad(grad * (-1.0) * (a / b.powf(2.0)));
+            }
+            Op::Pow => {
+                // The operation was a ^ b
+                let a = prev[0].data();
+                let b = prev[1].data();
+                prev[0].adjust_grad(grad * (b * a.powf(b - 1.0)));
+            }
             Op::Tanh => {
-                // The operation was tanh(v)
-                let epowf2x = E.powf(2.0 * grad);
-                let t = (epowf2x - 1.0) / (epowf2x + 1.0);
-                prev[0].set_grad(grad + (1.0 - t.powf(2.0)) * grad);
+                let x = prev[0].data();
+                let t: f64 = (E.powf(2.0 * x) - 1.0) / (E.powf(2.0 * x) + 1.0);
+                prev[0].set_grad(prev[0].grad() + (1.0 - t.powf(2.0)) * grad);
             }
             Op::None => {}
         }
@@ -228,7 +239,6 @@ pub enum Op {
     Mul,
     Div,
     Pow,
-    Neg,
     Tanh,
 }
 
@@ -281,7 +291,6 @@ impl Eq for ValueInner {}
 
 #[cfg(test)]
 mod tests {
-    // Note this useful idiom: importing names from outer (for mod tests) scope.
     use super::*;
 
     #[test]
@@ -292,62 +301,46 @@ mod tests {
         assert_eq!(c.data(), 5.0);
         assert_eq!(c.op(), Op::Add);
     }
-    /*
-        #[test]
-        fn test_add_backward() {
-            let a: Value = Value::new(2.0);
-            let b: Value = Value::new(3.0);
-            assert_eq!(a.grad, 0.0);
-            assert_eq!(b.grad, 0.0);
-            let mut c: Value = a + b;
-            dbg!(&c);
-            c.grad = 2.0;
-            assert_eq!(c.prev[0].borrow().grad, 2.0);
-            assert_eq!(c.prev[0].borrow().grad, 2.0);
-        }
 
-        #[test]
-        fn test_sub() {
-            let a: Value = Value::new(2.0);
-            let b: Value = Value::new(3.0);
-            let c: Value = a - b;
-            assert_eq!(c.data, -1.0);
-            assert_eq!(c.op, Op::Sub);
-        }
+    #[test]
+    fn test_sub() {
+        let a: Value = Value::new(5.0);
+        let b: Value = Value::new(3.0);
+        let c: Value = a - b;
+        assert_eq!(c.data(), 2.0);
+        assert_eq!(c.op(), Op::Sub);
+    }
 
-        #[test]
-        fn test_mul() {
-            let a: Value = Value::new(2.0);
-            let b: Value = Value::new(3.0);
-            let c: Value = a * b;
-            assert_eq!(c.data, 6.0);
-            assert_eq!(c.op, Op::Mul);
-        }
+    #[test]
+    fn test_mul() {
+        let a: Value = Value::new(2.0);
+        let b: Value = Value::new(3.0);
+        let c: Value = a * b;
+        assert_eq!(c.data(), 6.0);
+        assert_eq!(c.op(), Op::Mul);
+    }
 
-        #[test]
-        fn test_pow() {
-            let a: Value = Value::new(3.0);
-            let b: Value = a.pow(2.0);
-            assert_eq!(b.data, 9.0);
-            assert_eq!(b.op, Op::Pow);
-        }
+    #[test]
+    fn test_div() {
+        let a: Value = Value::new(6.0);
+        let b: Value = Value::new(3.0);
+        let c: Value = a / b;
+        assert_eq!(c.data(), 2.0);
+        assert_eq!(c.op(), Op::Div);
+    }
 
-        #[test]
-        fn test_div() {
-            let a: Value = Value::new(3.0);
-            let b: Value = Value::new(2.0);
-            let c: Value = a / b;
-            assert_eq!(c.data, 1.5);
-            assert_eq!(c.op, Op::Div);
-        }
+    #[test]
+    fn test_pow() {
+        let a: Value = Value::new(6.0);
+        let b = a.pow(2.0);
+        assert_eq!(b.data(), 36.0);
+        assert_eq!(b.op(), Op::Pow);
+    }
 
-        #[test]
-        fn test_neg() {
-            let a: Value = Value::new(3.0);
-            let b = -a;
-            assert_eq!(b.data, -3.0);
-            assert_eq!(b.op, Op::Neg);
-        }
-
-    */
+    #[test]
+    fn test_neg() {
+        let a: Value = Value::new(6.0);
+        let b = -a;
+        assert_eq!(b.data(), -6.0);
+    }
 }
