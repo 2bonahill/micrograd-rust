@@ -227,7 +227,12 @@ impl Div for Value {
 
 impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Value(data={})", self.borrow().data)
+        write!(
+            f,
+            "Value(data={}, grad={})",
+            self.borrow().data,
+            self.borrow().grad
+        )
     }
 }
 

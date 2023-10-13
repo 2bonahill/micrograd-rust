@@ -1,12 +1,113 @@
-use micrograd_rust::engine::Value;
+use micrograd_rust::{engine::Value, nn::MLP};
+use rand::Rng;
 
 extern crate micrograd_rust;
 
 fn main() {
-    lecture_example();
+    // engine();
+    // nn_lecture();
+    nn_is_bigger_than()
 }
 
-pub fn lecture_example() {
+pub fn nn_is_bigger_than() {
+    let mlp: MLP = MLP::new(3, vec![4, 4, 1]);
+
+    let mut rng = rand::thread_rng();
+
+    let mut xs: Vec<Vec<f64>> = vec![];
+    let mut ys: Vec<Value> = vec![];
+
+    for _ in 0..40 {
+        let r1 = rng.gen_range(0.0..=10.0);
+        let r2 = rng.gen_range(0.0..=10.0);
+        let r3 = rng.gen_range(0.0..=10.0);
+        xs.push(vec![r1, r2, r3]);
+        let t: f64 = if r1 + r2 + r2 > 15.0 { 1.0 } else { -1.0 };
+        ys.push(Value::new(t));
+    }
+
+    for _ in 0..100 {
+        let y_pred: Vec<Value> = xs.iter().map(|x| mlp.call(x.clone())).collect();
+
+        let mut loss: Value = Value::new(0.0);
+
+        // loss.set_grad(1.0);
+        for i in 0..ys.len() {
+            let d = y_pred[i].clone() - ys[i].clone();
+            let d_sq = d.pow(2.0);
+            loss = loss + d_sq;
+        }
+
+        dbg!(&loss.data());
+
+        for p in mlp.parameters() {
+            p.borrow_mut().grad = 0.0;
+        }
+
+        loss.backward();
+
+        for p in mlp.parameters() {
+            let grad = p.borrow().grad;
+            p.borrow_mut().data -= 0.0001 * grad;
+        }
+    }
+
+    // make a prediction:
+    let pred = mlp.call(vec![1.0, 1.0, 1.0]);
+    println!("Pred sum = 3: {}", pred);
+    let pred = mlp.call(vec![10.0, 1.0, 1.0]);
+    println!("Pred sum = 12: {}", pred);
+    let pred = mlp.call(vec![10.0, 10.0, 10.0]);
+    println!("Pred sum = 30: {}", pred);
+}
+
+pub fn nn_lecture() {
+    // Create the Network with 2 hidden layers (4 neurons each)
+    let mlp: MLP = MLP::new(3, vec![4, 4, 1]);
+
+    // The test data
+    let xs: Vec<Vec<f64>> = vec![
+        vec![2.0, 3.0, -1.0],
+        vec![3.0, -1.0, 0.5],
+        vec![0.5, 1.0, 1.0],
+        vec![1.0, 1.0, -1.0],
+    ];
+
+    // Desired targets
+    let ys = vec![
+        Value::new(1.0),
+        Value::new(-1.0),
+        Value::new(-1.0),
+        Value::new(1.0),
+    ];
+
+    for _ in 0..100 {
+        // forward pass
+        let y_pred: Vec<Value> = xs.iter().map(|x| mlp.call(x.clone())).collect();
+
+        let mut loss: Value = Value::new(0.0);
+
+        for i in 0..ys.len() {
+            let d = y_pred[i].clone() - ys[i].clone();
+            let d_sq = d.pow(2.0);
+            loss = loss + d_sq;
+        }
+
+        // reset the gradients
+        for p in mlp.parameters() {
+            p.borrow_mut().grad = 0.0;
+        }
+
+        // backpropagation and gradient adjustment
+        loss.backward();
+        for p in mlp.parameters() {
+            let grad = p.borrow().grad;
+            p.borrow_mut().data -= 0.01 * grad;
+        }
+    }
+}
+
+pub fn engine() {
     // as in Andrejs video
     let x1 = Value::new(2.0);
     let x2 = Value::new(0.0);
@@ -25,15 +126,6 @@ pub fn lecture_example() {
     let o = n.tanh();
 
     o.backward();
-
-    // println!("x1 grad: {}", x1.grad());
-    // println!("x2 grad: {}", x2.grad());
-    // println!("w1 grad: {}", w1.grad());
-    // println!("w2 grad: {}", w2.grad());
-    // println!("x1w1 grad: {}", x1w1.grad());
-    // println!("x2w2 grad: {}", x2w2.grad());
-    // println!("x1w1x2w2 grad: {}", x1w1x2w2.grad());
-    // println!("o data: {}", o.data());
 
     assert!(ae(n.data(), 0.8814), "Incorrect n");
     assert!(ae(o.data(), 0.7071), "Incorrect final output o");
