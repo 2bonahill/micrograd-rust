@@ -3,8 +3,6 @@ A Rust-adoption of [Andrej Karpathy's micrograd](https://github.com/karpathy/mic
 
 A feedforward artificial neural network. Implements backpropagation over a dynamically built DAG and a small neural networks library on top of it with a PyTorch-like API.
 
-![My Image](./monster.png)
-
 ## Features
 
 - **Neurons**: Basic building block for the layers.
